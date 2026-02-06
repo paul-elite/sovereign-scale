@@ -1,8 +1,8 @@
 'use client';
 
-// Min/Max Breakpoint Controls with Device Presets
+// Min/Max Breakpoint Controls with Device Presets and Draggable Range
 import { useScaleStore } from '@/store/useScaleStore';
-import { useState, useEffect, ReactNode } from 'react';
+import { useState, useEffect, ReactNode, useRef, useCallback } from 'react';
 import {
   SmartphoneIcon,
   TabletIcon,
@@ -37,6 +37,10 @@ const DEVICES: Device[] = [
   { name: '4K Display', width: 3840, icon: <TvIcon size={16} />, category: 'max' },
 ];
 
+const MIN_RANGE = 200;
+const MAX_RANGE = 2560;
+const MIN_GAP = 100;
+
 export function BreakpointInput() {
   const minBreakpoint = useScaleStore((s) => s.minBreakpoint);
   const maxBreakpoint = useScaleStore((s) => s.maxBreakpoint);
@@ -50,7 +54,18 @@ export function BreakpointInput() {
     <div className="space-y-4">
       <div className="text-sm font-medium text-primary">Breakpoints</div>
 
-      {/* Min Breakpoint */}
+      {/* Draggable Range Slider */}
+      <RangeSlider
+        minValue={minBreakpoint}
+        maxValue={maxBreakpoint}
+        onMinChange={setMinBreakpoint}
+        onMaxChange={setMaxBreakpoint}
+        min={MIN_RANGE}
+        max={MAX_RANGE}
+        minGap={MIN_GAP}
+      />
+
+      {/* Min Breakpoint Devices */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <label className="text-xs text-secondary">Minimum (Mobile)</label>
@@ -63,19 +78,13 @@ export function BreakpointInput() {
               device={device}
               isSelected={minBreakpoint === device.width}
               onClick={() => setMinBreakpoint(device.width)}
-              disabled={device.width >= maxBreakpoint}
+              disabled={device.width >= maxBreakpoint - MIN_GAP}
             />
           ))}
         </div>
-        <BreakpointField
-          value={minBreakpoint}
-          onChange={setMinBreakpoint}
-          min={200}
-          max={maxBreakpoint - 100}
-        />
       </div>
 
-      {/* Max Breakpoint */}
+      {/* Max Breakpoint Devices */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <label className="text-xs text-secondary">Maximum (Desktop)</label>
@@ -88,53 +97,9 @@ export function BreakpointInput() {
               device={device}
               isSelected={maxBreakpoint === device.width}
               onClick={() => setMaxBreakpoint(device.width)}
-              disabled={device.width <= minBreakpoint}
+              disabled={device.width <= minBreakpoint + MIN_GAP}
             />
           ))}
-        </div>
-        <BreakpointField
-          value={maxBreakpoint}
-          onChange={setMaxBreakpoint}
-          min={minBreakpoint + 100}
-          max={3840}
-        />
-      </div>
-
-      {/* Visual range indicator */}
-      <div className="space-y-1">
-        <div className="text-xs text-secondary">Scale Range</div>
-        <div className="relative h-10 bg-deep rounded-lg overflow-hidden">
-          {/* Background device markers */}
-          {DEVICES.map((device) => (
-            <div
-              key={device.name}
-              className="absolute top-0 h-full w-px bg-subtle/30"
-              style={{ left: `${(device.width / 3840) * 100}%` }}
-              title={`${device.name}: ${device.width}px`}
-            />
-          ))}
-
-          {/* Active range */}
-          <div
-            className="absolute h-full bg-accent/20 border-x-2 border-accent"
-            style={{
-              left: `${(minBreakpoint / 3840) * 100}%`,
-              width: `${((maxBreakpoint - minBreakpoint) / 3840) * 100}%`,
-            }}
-          />
-
-          {/* Labels */}
-          <div className="absolute inset-0 flex items-center justify-between px-2">
-            <span className="text-xs font-mono text-secondary bg-deep/80 px-1 rounded">
-              {minBreakpoint}
-            </span>
-            <span className="text-xs text-secondary/50">
-              {maxBreakpoint - minBreakpoint}px range
-            </span>
-            <span className="text-xs font-mono text-secondary bg-deep/80 px-1 rounded">
-              {maxBreakpoint}
-            </span>
-          </div>
         </div>
       </div>
 
@@ -179,6 +144,209 @@ export function BreakpointInput() {
             isActive={minBreakpoint === 744 && maxBreakpoint === 1024}
           />
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Draggable Range Slider Component
+interface RangeSliderProps {
+  minValue: number;
+  maxValue: number;
+  onMinChange: (value: number) => void;
+  onMaxChange: (value: number) => void;
+  min: number;
+  max: number;
+  minGap: number;
+}
+
+function RangeSlider({
+  minValue,
+  maxValue,
+  onMinChange,
+  onMaxChange,
+  min,
+  max,
+  minGap,
+}: RangeSliderProps) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [dragging, setDragging] = useState<'min' | 'max' | null>(null);
+
+  const getPercentage = (value: number) => ((value - min) / (max - min)) * 100;
+  const getValue = (percentage: number) => Math.round(min + (percentage / 100) * (max - min));
+
+  const handleMouseDown = useCallback((handle: 'min' | 'max') => {
+    setDragging(handle);
+  }, []);
+
+  const handleMouseMove = useCallback(
+    (e: MouseEvent) => {
+      if (!dragging || !trackRef.current) return;
+
+      const rect = trackRef.current.getBoundingClientRect();
+      const percentage = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+      const newValue = getValue(percentage);
+
+      if (dragging === 'min') {
+        const clampedValue = Math.max(min, Math.min(maxValue - minGap, newValue));
+        onMinChange(clampedValue);
+      } else {
+        const clampedValue = Math.min(max, Math.max(minValue + minGap, newValue));
+        onMaxChange(clampedValue);
+      }
+    },
+    [dragging, minValue, maxValue, min, max, minGap, onMinChange, onMaxChange]
+  );
+
+  const handleMouseUp = useCallback(() => {
+    setDragging(null);
+  }, []);
+
+  useEffect(() => {
+    if (dragging) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [dragging, handleMouseMove, handleMouseUp]);
+
+  // Touch support
+  const handleTouchMove = useCallback(
+    (e: TouchEvent) => {
+      if (!dragging || !trackRef.current) return;
+
+      const touch = e.touches[0];
+      const rect = trackRef.current.getBoundingClientRect();
+      const percentage = Math.max(0, Math.min(100, ((touch.clientX - rect.left) / rect.width) * 100));
+      const newValue = getValue(percentage);
+
+      if (dragging === 'min') {
+        const clampedValue = Math.max(min, Math.min(maxValue - minGap, newValue));
+        onMinChange(clampedValue);
+      } else {
+        const clampedValue = Math.min(max, Math.max(minValue + minGap, newValue));
+        onMaxChange(clampedValue);
+      }
+    },
+    [dragging, minValue, maxValue, min, max, minGap, onMinChange, onMaxChange]
+  );
+
+  const handleTouchEnd = useCallback(() => {
+    setDragging(null);
+  }, []);
+
+  useEffect(() => {
+    if (dragging) {
+      window.addEventListener('touchmove', handleTouchMove);
+      window.addEventListener('touchend', handleTouchEnd);
+      return () => {
+        window.removeEventListener('touchmove', handleTouchMove);
+        window.removeEventListener('touchend', handleTouchEnd);
+      };
+    }
+  }, [dragging, handleTouchMove, handleTouchEnd]);
+
+  const minPercent = getPercentage(minValue);
+  const maxPercent = getPercentage(maxValue);
+
+  return (
+    <div className="space-y-2">
+      <div className="text-xs text-secondary flex justify-between">
+        <span>Drag handles to adjust range</span>
+        <span className="text-accent">{maxValue - minValue}px</span>
+      </div>
+
+      {/* Track container */}
+      <div
+        ref={trackRef}
+        className="relative h-14 bg-deep rounded-lg cursor-pointer select-none"
+      >
+        {/* Device markers */}
+        {DEVICES.filter(d => d.width >= min && d.width <= max).map((device) => (
+          <div
+            key={device.name}
+            className="absolute top-0 h-full flex flex-col items-center justify-end pb-1"
+            style={{ left: `${getPercentage(device.width)}%`, transform: 'translateX(-50%)' }}
+          >
+            <div className="w-px h-3 bg-subtle/50" />
+          </div>
+        ))}
+
+        {/* Inactive track left */}
+        <div
+          className="absolute top-1/2 -translate-y-1/2 h-2 bg-elevated rounded-l-full"
+          style={{ left: 0, width: `${minPercent}%` }}
+        />
+
+        {/* Active range */}
+        <div
+          className="absolute top-1/2 -translate-y-1/2 h-2 bg-accent/40"
+          style={{
+            left: `${minPercent}%`,
+            width: `${maxPercent - minPercent}%`,
+          }}
+        />
+
+        {/* Inactive track right */}
+        <div
+          className="absolute top-1/2 -translate-y-1/2 h-2 bg-elevated rounded-r-full"
+          style={{ left: `${maxPercent}%`, right: 0 }}
+        />
+
+        {/* Min Handle */}
+        <div
+          className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-6 h-10 rounded-lg cursor-ew-resize flex flex-col items-center justify-center gap-0.5 transition-colors ${
+            dragging === 'min'
+              ? 'bg-accent shadow-lg shadow-accent/30'
+              : 'bg-accent/80 hover:bg-accent'
+          }`}
+          style={{ left: `${minPercent}%` }}
+          onMouseDown={() => handleMouseDown('min')}
+          onTouchStart={() => handleMouseDown('min')}
+        >
+          <div className="w-0.5 h-3 bg-white/60 rounded-full" />
+          <div className="w-0.5 h-3 bg-white/60 rounded-full" />
+        </div>
+
+        {/* Max Handle */}
+        <div
+          className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-6 h-10 rounded-lg cursor-ew-resize flex flex-col items-center justify-center gap-0.5 transition-colors ${
+            dragging === 'max'
+              ? 'bg-accent shadow-lg shadow-accent/30'
+              : 'bg-accent/80 hover:bg-accent'
+          }`}
+          style={{ left: `${maxPercent}%` }}
+          onMouseDown={() => handleMouseDown('max')}
+          onTouchStart={() => handleMouseDown('max')}
+        >
+          <div className="w-0.5 h-3 bg-white/60 rounded-full" />
+          <div className="w-0.5 h-3 bg-white/60 rounded-full" />
+        </div>
+
+        {/* Min value label */}
+        <div
+          className="absolute bottom-0 -translate-x-1/2 text-xs font-mono text-primary bg-surface px-1.5 py-0.5 rounded"
+          style={{ left: `${minPercent}%` }}
+        >
+          {minValue}
+        </div>
+
+        {/* Max value label */}
+        <div
+          className="absolute bottom-0 -translate-x-1/2 text-xs font-mono text-primary bg-surface px-1.5 py-0.5 rounded"
+          style={{ left: `${maxPercent}%` }}
+        >
+          {maxValue}
+        </div>
+      </div>
+
+      {/* Scale labels */}
+      <div className="flex justify-between text-xs text-secondary/50 font-mono">
+        <span>{min}px</span>
+        <span>{max}px</span>
       </div>
     </div>
   );
@@ -233,54 +401,5 @@ function PresetButton({ label, description, onClick, isActive }: PresetButtonPro
       <span className="block font-medium text-primary">{label}</span>
       <span className={isActive ? 'text-accent' : 'text-secondary'}>{description}</span>
     </button>
-  );
-}
-
-interface BreakpointFieldProps {
-  value: number;
-  onChange: (value: number) => void;
-  min: number;
-  max: number;
-}
-
-function BreakpointField({ value, onChange, min, max }: BreakpointFieldProps) {
-  const [localValue, setLocalValue] = useState(value.toString());
-
-  useEffect(() => {
-    setLocalValue(value.toString());
-  }, [value]);
-
-  const handleBlur = () => {
-    const num = parseInt(localValue, 10);
-    if (!isNaN(num)) {
-      const clamped = Math.max(min, Math.min(max, num));
-      onChange(clamped);
-      setLocalValue(clamped.toString());
-    } else {
-      setLocalValue(value.toString());
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleBlur();
-    }
-  };
-
-  return (
-    <div className="relative">
-      <input
-        type="text"
-        value={localValue}
-        onChange={(e) => setLocalValue(e.target.value)}
-        onBlur={handleBlur}
-        onKeyDown={handleKeyDown}
-        className="w-full px-3 py-1.5 bg-deep border border-subtle rounded text-xs font-mono text-primary focus:outline-none focus:border-accent"
-        placeholder="Custom value"
-      />
-      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-secondary">
-        px
-      </span>
-    </div>
   );
 }
